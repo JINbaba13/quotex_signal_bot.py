@@ -1,64 +1,83 @@
+import asyncio
+import datetime
+import pytz
 import requests
-from telegram import Bot, ParseMode
-from datetime import datetime
-import time
-import os
+from telegram import Bot
+from telegram.constants import ParseMode
+import pandas as pd
 
-BOT_API_TOKEN = os.getenv("BOT_API_TOKEN")
-USER_ID = os.getenv("USER_ID")
-API_KEY = os.getenv("API_KEY")
+# === CONFIGURATION ===
+BOT_API_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+USER_ID = "YOUR_TELEGRAM_USER_ID"
+API_KEY = "YOUR_TWELVEDATA_API_KEY"
 
-PAIRS = ["BTC/USD", "ETH/USD", "EUR/USD", "GBP/USD", "USD/JPY"]
-ROTATION_FILE = "pair_rotation.txt"
+PAIRS = ['BTC/USD', 'ETH/USD', 'EUR/USD', 'GBP/USD', 'USD/JPY']
+INTERVAL = "1min"
+TIMEZONE = pytz.timezone("Europe/Paris")
 
 bot = Bot(token=BOT_API_TOKEN)
 
-def fetch_price(symbol):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=1&apikey={API_KEY}"
-    response = requests.get(url)
-    data = response.json()
-    if "status" in data and data["status"] == "error":
-        print(f"❌ API error for {symbol}: {data}")
-        return None
+# === GET SIGNAL FUNCTION (based on candle 3 minutes ago) ===
+def get_signal(pair):
+    url = f"https://api.twelvedata.com/time_series?symbol={pair}&interval={INTERVAL}&apikey={API_KEY}&outputsize=5"
+    response = requests.get(url).json()
+
+    if 'status' in response and response['status'] == 'error':
+        print(f"❌ API response error for {pair}: {response}")
+        return 0, None
+
     try:
-        price = float(data["values"][0]["close"])
-        return price
-    except:
-        print(f"⚠️ Data error for {symbol}: {data}")
-        return None
+        df = pd.DataFrame(response['values'])
+        df['close'] = df['close'].astype(float)
+        df['open'] = df['open'].astype(float)
 
-def generate_signal(symbol):
-    price = fetch_price(symbol)
-    if price is None:
-        return None, 0
-    if price > 50000:  # Placeholder logic
-        return "BUY", 10
-    else:
-        return "SELL", 9
+        # Get candle from 3 minutes ago and 4 minutes ago
+        last = df.iloc[2]
+        second_last = df.iloc[3]
 
-def send_signal(symbol, signal, score):
-    now = datetime.now().strftime("%H:%M:%S")
-    message = f"📊 Signal for *{symbol}*\n⏰ Time: *{now}* France time\n📈 Signal: *{signal}* | Score: *{score}/10*"
-    bot.send_message(chat_id=USER_ID, text=message, parse_mode=ParseMode.MARKDOWN)
+        bullish = last['close'] > last['open'] and second_last['close'] > second_last['open']
+        bearish = last['close'] < last['open'] and second_last['close'] < second_last['open']
 
-def get_next_pair():
-    index = 0
-    if os.path.exists(ROTATION_FILE):
-        with open(ROTATION_FILE, "r") as f:
-            index = int(f.read().strip())
-    next_pair = PAIRS[index % len(PAIRS)]
-    with open(ROTATION_FILE, "w") as f:
-        f.write(str((index + 1) % len(PAIRS)))
-    return next_pair
+        if bullish:
+            return 9, "BUY"
+        elif bearish:
+            return 9, "SELL"
+        else:
+            return 5, None
+    except Exception as e:
+        print(f"⚠️ Error processing data for {pair}: {e}")
+        return 0, None
 
-def main():
-    symbol = get_next_pair()
-    print(f"⏰ Checking {symbol} at {datetime.now().strftime('%H:%M:%S')} France time...")
-    signal, score = generate_signal(symbol)
-    if signal and score >= 9:
-        send_signal(symbol, signal, score)
-    else:
-        print(f"⚠️ No strong signal for {symbol} (Score: {score}/10)")
+# === SEND SIGNAL ===
+async def send_signal(pair, signal, score):
+    now = datetime.datetime.now(TIMEZONE)
+    signal_time = now + datetime.timedelta(minutes=3)
+    formatted_time = signal_time.strftime("%H:%M")  # Remove seconds
+    message = f"""📊 Signal for {pair}
+⏰ Trade at: {formatted_time} France time
+📈 Signal: {signal} | Score: {score}/10"""
+    await bot.send_message(chat_id=USER_ID, text=message, parse_mode=ParseMode.MARKDOWN)
 
+# === MAIN LOGIC ===
+async def run_signal_check():
+    for pair in PAIRS:
+        print(f"🔍 Checking {pair}...")
+        score, signal = get_signal(pair)
+        if score >= 9 and signal:
+            await send_signal(pair, signal, score)
+            print(f"✅ Signal sent for {pair}: {signal} ({score}/10)")
+            await asyncio.sleep(5)  # Wait 5 seconds between signals
+        else:
+            print(f"⚠️ No valid signal for {pair} (Score: {score}/10)")
+
+# === REPEAT EVERY 5 MINUTES ===
+async def run_loop():
+    while True:
+        print("🔁 Checking signals...")
+        await run_signal_check()
+        print("⏳ Waiting 5 minutes...")
+        await asyncio.sleep(300)  # 5 minutes delay
+
+# === RUN SCRIPT ===
 if __name__ == "__main__":
-    main()
+    asyncio.run(run_loop())
