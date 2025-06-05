@@ -17,13 +17,15 @@ TIMEZONE = pytz.timezone("Europe/Paris")
 
 bot = Bot(token=BOT_API_TOKEN)
 
-# === GET SIGNAL FUNCTION (based on candle 3 minutes ago) ===
+last_signal_time = None  # To track the last sent signal time
+
+# === GET SIGNAL FUNCTION ===
 def get_signal(pair):
     url = f"https://api.twelvedata.com/time_series?symbol={pair}&interval={INTERVAL}&apikey={API_KEY}&outputsize=5"
     response = requests.get(url).json()
 
     if 'status' in response and response['status'] == 'error':
-        print(f"❌ API response error for {pair}: {response}")
+        print(f"❌ API error for {pair}: {response}")
         return 0, None
 
     try:
@@ -31,7 +33,6 @@ def get_signal(pair):
         df['close'] = df['close'].astype(float)
         df['open'] = df['open'].astype(float)
 
-        # Get candle from 3 minutes ago and 4 minutes ago
         last = df.iloc[2]
         second_last = df.iloc[3]
 
@@ -45,14 +46,12 @@ def get_signal(pair):
         else:
             return 5, None
     except Exception as e:
-        print(f"⚠️ Error processing data for {pair}: {e}")
+        print(f"⚠️ Data error for {pair}: {e}")
         return 0, None
 
-# === SEND SIGNAL ===
-async def send_signal(pair, signal, score):
-    now = datetime.datetime.now(TIMEZONE)
-    signal_time = now + datetime.timedelta(minutes=3)
-    formatted_time = signal_time.strftime("%H:%M")  # Remove seconds
+# === SEND SIGNAL FUNCTION ===
+async def send_signal(pair, signal, score, signal_time):
+    formatted_time = signal_time.strftime("%H:%M")  # No seconds
     message = f"""📊 Signal for {pair}
 ⏰ Trade at: {formatted_time} France time
 📈 Signal: {signal} | Score: {score}/10"""
@@ -60,24 +59,31 @@ async def send_signal(pair, signal, score):
 
 # === MAIN LOGIC ===
 async def run_signal_check():
+    global last_signal_time
+    now = datetime.datetime.now(TIMEZONE)
+
     for pair in PAIRS:
-        print(f"🔍 Checking {pair}...")
         score, signal = get_signal(pair)
         if score >= 9 and signal:
-            await send_signal(pair, signal, score)
-            print(f"✅ Signal sent for {pair}: {signal} ({score}/10)")
-            await asyncio.sleep(5)  # Wait 5 seconds between signals
-        else:
-            print(f"⚠️ No valid signal for {pair} (Score: {score}/10)")
+            proposed_trade_time = now + datetime.timedelta(minutes=3)
 
-# === REPEAT EVERY 5 MINUTES ===
+            if last_signal_time is None or (proposed_trade_time - last_signal_time).total_seconds() >= 300:
+                await send_signal(pair, signal, score, proposed_trade_time)
+                print(f"✅ Signal sent for {pair} at {proposed_trade_time.strftime('%H:%M')}")
+                last_signal_time = proposed_trade_time
+                await asyncio.sleep(5)
+                break  # Only one signal per cycle
+            else:
+                print(f"⏳ Skipping {pair} – Too soon after last signal at {last_signal_time.strftime('%H:%M')}")
+        else:
+            print(f"❌ No signal for {pair}")
+
+# === REPEAT EVERY 1 MINUTE TO MONITOR ===
 async def run_loop():
     while True:
-        print("🔁 Checking signals...")
         await run_signal_check()
-        print("⏳ Waiting 5 minutes...")
-        await asyncio.sleep(300)  # 5 minutes delay
+        await asyncio.sleep(60)  # Check every 1 minute for flexibility
 
-# === RUN SCRIPT ===
+# === START SCRIPT ===
 if __name__ == "__main__":
     asyncio.run(run_loop())
