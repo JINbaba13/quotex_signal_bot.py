@@ -7,7 +7,7 @@ from telegram import Bot, constants
 from telegram.ext import Application
 
 # === CONFIGURATION ===
-BOT_API_TOKEN = "7636996493:AAEa9ddt4okvNj2RyeWGPemvN3NDsQ_wXCcN"
+BOT_API_TOKEN = "7636996493:AAEa9ddt4okvNj2RyeWGPemvN3NDsQ_wXCc"
 USER_ID = "7989610604"
 API_KEY = "2bbdaeca1e7e4010a0833015a50350e8"
 
