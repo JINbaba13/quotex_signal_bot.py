@@ -1,33 +1,23 @@
-name: Run Signal Bot
+name: Python Bot CI
 
 on:
   push:
-    branches: [ main ]
-  schedule:
-    - cron: '*/5 * * * *'  # runs every 5 minutes
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Run the signal bot
-      env:
-        BOT_API_TOKEN: ${{ secrets.BOT_API_TOKEN }}
-        USER_ID: ${{ secrets.USER_ID }}
-        API_KEY: ${{ secrets.API_KEY }}
-      run: |
-        python quotex_signal_bot.py
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.10
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run bot
+        run: |
+          python quotex_signal_bot.py
