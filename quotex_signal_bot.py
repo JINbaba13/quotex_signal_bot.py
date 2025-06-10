@@ -15,7 +15,7 @@ PAIRS = ['BTC/USD', 'ETH/USD', 'EUR/USD', 'GBP/USD', 'USD/JPY']
 INTERVAL = "1min"
 TIMEZONE = pytz.timezone("Europe/Paris")
 
-last_signal_time = None  # To track the last sent signal time
+sent_signals = set()  # Track sent signals by (pair + time)
 
 
 # === GET SIGNAL FUNCTION ===
@@ -60,22 +60,22 @@ async def send_signal(bot, pair, signal, score, signal_time):
 
 # === MAIN LOGIC ===
 async def run_signal_check(bot):
-    global last_signal_time
     now = datetime.datetime.now(TIMEZONE)
 
     for pair in PAIRS:
         score, signal = get_signal(pair)
         if score >= 9 and signal:
-            proposed_trade_time = now + datetime.timedelta(minutes=3)
+            trade_time = (now + datetime.timedelta(minutes=3)).strftime("%H:%M")
+            key = f"{pair}_{trade_time}"
 
-            if last_signal_time is None or (proposed_trade_time - last_signal_time).total_seconds() >= 300:
-                await send_signal(bot, pair, signal, score, proposed_trade_time)
-                print(f"✅ Signal sent for {pair} at {proposed_trade_time.strftime('%H:%M')}")
-                last_signal_time = proposed_trade_time
+            if key not in sent_signals:
+                await send_signal(bot, pair, signal, score, now + datetime.timedelta(minutes=3))
+                sent_signals.add(key)
+                print(f"✅ Signal sent for {pair} at {trade_time}")
                 await asyncio.sleep(5)
                 break
             else:
-                print(f"⏳ Skipping {pair} – Too soon after last signal at {last_signal_time.strftime('%H:%M')}")
+                print(f"⏳ Duplicate signal skipped for {pair} at {trade_time}")
         else:
             print(f"❌ No signal for {pair}")
 
