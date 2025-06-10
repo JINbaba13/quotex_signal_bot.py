@@ -15,7 +15,8 @@ PAIRS = ['BTC/USD', 'ETH/USD', 'EUR/USD', 'GBP/USD', 'USD/JPY']
 INTERVAL = "1min"
 TIMEZONE = pytz.timezone("Europe/Paris")
 
-sent_signals = set()  # Track sent signals by (pair + time)
+sent_signals = set()
+last_reset_day = None
 
 
 # === GET SIGNAL FUNCTION ===
@@ -60,7 +61,15 @@ async def send_signal(bot, pair, signal, score, signal_time):
 
 # === MAIN LOGIC ===
 async def run_signal_check(bot):
+    global last_reset_day, sent_signals
     now = datetime.datetime.now(TIMEZONE)
+
+    # Daily reset of sent_signals
+    current_day = now.date()
+    if last_reset_day is None or current_day != last_reset_day:
+        print("🔄 Resetting sent signals for a new day.")
+        sent_signals = set()
+        last_reset_day = current_day
 
     for pair in PAIRS:
         score, signal = get_signal(pair)
