@@ -64,6 +64,11 @@ async def run_signal_check(bot):
     global last_reset_day, sent_signals
     now = datetime.datetime.now(TIMEZONE)
 
+    # === Time Filter: Only run from 10:00 to 22:00 France time ===
+    if now.hour < 10 or now.hour >= 22:
+        print(f"⏸️ Skipping signal check – outside active time ({now.strftime('%H:%M')})")
+        return
+
     # Daily reset of sent_signals
     current_day = now.date()
     if last_reset_day is None or current_day != last_reset_day:
