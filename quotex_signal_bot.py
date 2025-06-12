@@ -14,8 +14,15 @@ PAIRS = ['BTC/USD', 'ETH/USD', 'EUR/USD', 'GBP/USD', 'USD/JPY']
 INTERVAL = "1min"
 TIMEZONE = pytz.timezone("Europe/Paris")
 
-# Dictionary to track sent signals with timestamp
+# Store previously sent signals
 sent_signals = {}
+
+# === Round time to nearest 5-minute mark ===
+def round_time_to_5_minutes(dt):
+    discard = datetime.timedelta(minutes=dt.minute % 5,
+                                 seconds=dt.second,
+                                 microseconds=dt.microsecond)
+    return dt - discard + datetime.timedelta(minutes=5)
 
 # === GET SIGNAL FUNCTION ===
 def get_signal(pair):
@@ -61,28 +68,28 @@ async def run_signal_check(bot):
 
     for pair in PAIRS:
         score, signal = get_signal(pair)
-        if score >= 9 and signal:
-            proposed_trade_time = (now + datetime.timedelta(minutes=3)).strftime('%H:%M')
 
-            signal_key = f"{pair}_{signal}_{proposed_trade_time}"
+        # For testing: send even if score < 9
+        if signal:
+            rounded_time = round_time_to_5_minutes(now).strftime('%H:%M')
+            signal_key = f"{pair}_{signal}_{rounded_time}"
 
-            # Check if signal was already sent
+            print(f"🔍 Checking signal: {signal_key}")
             if signal_key not in sent_signals:
-                await send_signal(bot, pair, signal, score, now + datetime.timedelta(minutes=3))
-                sent_signals[signal_key] = time_now := datetime.datetime.now().timestamp()
-                print(f"✅ Signal sent for {pair} at {proposed_trade_time}")
+                await send_signal(bot, pair, signal, score, round_time_to_5_minutes(now))
+                sent_signals[signal_key] = datetime.datetime.now().timestamp()
+                print(f"✅ Signal sent for {pair} at {rounded_time}")
 
-                # Clean up signals older than 10 minutes
-                expire_before = datetime.datetime.now().timestamp() - 600
-                sent_signals_copy = sent_signals.copy()
-                for k, v in sent_signals_copy.items():
-                    if v < expire_before:
+                # Clean up old entries
+                expire_before = datetime.datetime.now().timestamp() - 600  # 10 min
+                for k in list(sent_signals.keys()):
+                    if sent_signals[k] < expire_before:
                         del sent_signals[k]
 
                 await asyncio.sleep(5)
-                break  # Optional: limit to one signal per check
+                break
             else:
-                print(f"⏳ Skipping {pair} – Duplicate signal already sent for {proposed_trade_time}")
+                print(f"⏳ Skipping duplicate: {signal_key}")
         else:
             print(f"❌ No signal for {pair}")
 
@@ -95,6 +102,10 @@ async def run_loop(bot):
 # === ENTRY POINT ===
 async def main():
     bot = Bot(token=BOT_API_TOKEN)
+    
+    # Test message to confirm bot is working
+    await bot.send_message(chat_id=USER_ID, text="✅ Bot started and ready to send signals!")
+
     await run_loop(bot)
 
 if __name__ == "__main__":
