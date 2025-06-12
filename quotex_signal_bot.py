@@ -15,8 +15,7 @@ PAIRS = ['BTC/USD', 'ETH/USD', 'EUR/USD', 'GBP/USD', 'USD/JPY']
 INTERVAL = "1min"
 TIMEZONE = pytz.timezone("Europe/Paris")
 
-sent_signals = set()
-last_reset_day = None
+last_signal_time = None  # To track the last sent signal time
 
 
 # === GET SIGNAL FUNCTION ===
@@ -61,35 +60,22 @@ async def send_signal(bot, pair, signal, score, signal_time):
 
 # === MAIN LOGIC ===
 async def run_signal_check(bot):
-    global last_reset_day, sent_signals
+    global last_signal_time
     now = datetime.datetime.now(TIMEZONE)
-
-    # === Time Filter: Only run from 10:00 to 22:00 France time ===
-    if now.hour < 10 or now.hour >= 22:
-        print(f"⏸️ Skipping signal check – outside active time ({now.strftime('%H:%M')})")
-        return
-
-    # Daily reset of sent_signals
-    current_day = now.date()
-    if last_reset_day is None or current_day != last_reset_day:
-        print("🔄 Resetting sent signals for a new day.")
-        sent_signals = set()
-        last_reset_day = current_day
 
     for pair in PAIRS:
         score, signal = get_signal(pair)
         if score >= 9 and signal:
-            trade_time = (now + datetime.timedelta(minutes=3)).strftime("%H:%M")
-            key = f"{pair}_{trade_time}"
+            proposed_trade_time = now + datetime.timedelta(minutes=3)
 
-            if key not in sent_signals:
-                await send_signal(bot, pair, signal, score, now + datetime.timedelta(minutes=3))
-                sent_signals.add(key)
-                print(f"✅ Signal sent for {pair} at {trade_time}")
+            if last_signal_time is None or (proposed_trade_time - last_signal_time).total_seconds() >= 300:
+                await send_signal(bot, pair, signal, score, proposed_trade_time)
+                print(f"✅ Signal sent for {pair} at {proposed_trade_time.strftime('%H:%M')}")
+                last_signal_time = proposed_trade_time
                 await asyncio.sleep(5)
                 break
             else:
-                print(f"⏳ Duplicate signal skipped for {pair} at {trade_time}")
+                print(f"⏳ Skipping {pair} – Too soon after last signal at {last_signal_time.strftime('%H:%M')}")
         else:
             print(f"❌ No signal for {pair}")
 
