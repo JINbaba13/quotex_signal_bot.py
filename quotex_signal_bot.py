@@ -4,7 +4,6 @@ import pytz
 import requests
 import pandas as pd
 from telegram import Bot, constants
-from telegram.ext import Application
 
 # === CONFIGURATION ===
 BOT_API_TOKEN = "7636996493:AAEa9ddt4okvNj2RyeWGPemvN3NDsQ_wXCc"
@@ -15,8 +14,8 @@ PAIRS = ['BTC/USD', 'ETH/USD', 'EUR/USD', 'GBP/USD', 'USD/JPY']
 INTERVAL = "1min"
 TIMEZONE = pytz.timezone("Europe/Paris")
 
-last_signal_time = None  # To track the last sent signal time
-
+# Dictionary to track sent signals with timestamp
+sent_signals = {}
 
 # === GET SIGNAL FUNCTION ===
 def get_signal(pair):
@@ -48,7 +47,6 @@ def get_signal(pair):
         print(f"⚠️ Data error for {pair}: {e}")
         return 0, None
 
-
 # === SEND SIGNAL FUNCTION ===
 async def send_signal(bot, pair, signal, score, signal_time):
     formatted_time = signal_time.strftime("%H:%M")
@@ -57,28 +55,36 @@ async def send_signal(bot, pair, signal, score, signal_time):
 📈 Signal: {signal} | Score: {score}/10"""
     await bot.send_message(chat_id=USER_ID, text=message, parse_mode=constants.ParseMode.MARKDOWN)
 
-
 # === MAIN LOGIC ===
 async def run_signal_check(bot):
-    global last_signal_time
     now = datetime.datetime.now(TIMEZONE)
 
     for pair in PAIRS:
         score, signal = get_signal(pair)
         if score >= 9 and signal:
-            proposed_trade_time = now + datetime.timedelta(minutes=3)
+            proposed_trade_time = (now + datetime.timedelta(minutes=3)).strftime('%H:%M')
 
-            if last_signal_time is None or (proposed_trade_time - last_signal_time).total_seconds() >= 300:
-                await send_signal(bot, pair, signal, score, proposed_trade_time)
-                print(f"✅ Signal sent for {pair} at {proposed_trade_time.strftime('%H:%M')}")
-                last_signal_time = proposed_trade_time
+            signal_key = f"{pair}_{signal}_{proposed_trade_time}"
+
+            # Check if signal was already sent
+            if signal_key not in sent_signals:
+                await send_signal(bot, pair, signal, score, now + datetime.timedelta(minutes=3))
+                sent_signals[signal_key] = time_now := datetime.datetime.now().timestamp()
+                print(f"✅ Signal sent for {pair} at {proposed_trade_time}")
+
+                # Clean up signals older than 10 minutes
+                expire_before = datetime.datetime.now().timestamp() - 600
+                sent_signals_copy = sent_signals.copy()
+                for k, v in sent_signals_copy.items():
+                    if v < expire_before:
+                        del sent_signals[k]
+
                 await asyncio.sleep(5)
-                break
+                break  # Optional: limit to one signal per check
             else:
-                print(f"⏳ Skipping {pair} – Too soon after last signal at {last_signal_time.strftime('%H:%M')}")
+                print(f"⏳ Skipping {pair} – Duplicate signal already sent for {proposed_trade_time}")
         else:
             print(f"❌ No signal for {pair}")
-
 
 # === REPEATING LOOP ===
 async def run_loop(bot):
@@ -86,12 +92,10 @@ async def run_loop(bot):
         await run_signal_check(bot)
         await asyncio.sleep(60)
 
-
 # === ENTRY POINT ===
 async def main():
     bot = Bot(token=BOT_API_TOKEN)
     await run_loop(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
